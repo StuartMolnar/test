@@ -1,0 +1,86 @@
+def call(dockerRepoName, imageimageName) {
+    pipeline {
+        agent any
+        stages {
+            stage('Build') {
+                steps {
+                    script {
+                        sh "cd ${imageName} && pip install -r requirements.txt"
+                    }
+                    
+                }
+            }
+            
+            
+            stage('Lint') {
+                steps {
+                    script {
+                        sh "cd ${imageName} && pylint-fail-under --fail_under 5.0 *.py"
+                    }
+                    
+                }
+            }
+            
+
+            stage('Package') {
+                steps {
+                    script {
+                        withCredentials([string(credentialsId: 'DockerHub', variable: 'TOKEN')]) {
+                            sh "docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+
+                            sh "cd ${imageName} && docker build -t ${imageName}:latest --tag stuartmolnar/${dockerRepoName}:${imageName} ."
+                            sh "docker push stuartmolnar/${dockerRepoName}:${imageName}" 
+                        }
+                    }
+                }
+            }
+            
+            stage('Scan'){
+                steps {
+                    script {
+                        withCredentials([string(credentialsId: 'DockerHub', variable: 'TOKEN')]) {
+                            sh "docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+
+                            def docker_history = sh (
+                                script: "docker history stuartmolnar/${dockerRepoName}:${imageName}",
+                                returnStdout: true
+                            ).trim()
+
+                            docker_history = docker_history.split('\n')[1].split(' ')
+                            docker_history = docker_history[docker_history.length - 1]
+
+                            println(imageName + "'s latest image has a file size of " + dockerHistory) 
+                            index++
+                            }
+                        
+                        }
+                    }
+                }
+            }
+            
+
+            stage('Deploy'){
+
+                steps{
+                    script{
+
+                        
+                        sshagent(credentials : ['SSH_KEY']) {
+                            sh"""#!/bin/bash
+                            ssh -i ./azure_key.pem -o StrictHostKeyChecking=no azureuser@lab6.eastus.cloudapp.azure.com << 'EOF'
+                            docker pull "stuartmolnar/${dockerRepoimageName}:${imageName}"
+                            docker image ls
+                            cd Lab-7/deployment
+                            docker-compose up -d
+                            exit
+                            EO
+                            """
+                        }   
+
+                    }
+                    
+                }
+            }
+        }
+    }
+}

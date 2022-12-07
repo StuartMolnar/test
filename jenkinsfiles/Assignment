@@ -1,0 +1,129 @@
+def call(dockerRepoName, imageNames) {
+    pipeline {
+        agent any
+        stages {
+            stage('Build') {
+                steps {
+                    script {
+                        imageNames.each{ name -> 
+                            sh "cd ${name} && pip install -r requirements.txt"
+                        }
+                    }
+                    
+                }
+            }
+            
+            
+            stage('Lint') {
+                steps {
+                    script {
+                        imageNames.each{ name -> 
+                            sh "cd ${name} && pylint-fail-under --fail_under 5.0 *.py"
+                        }
+                    }
+                    
+                }
+            }
+            
+
+            stage('Package') {
+                steps {
+                    script {
+                        imageNames.each{ name -> 
+                            withCredentials([string(credentialsId: 'DockerHub', variable: 'TOKEN')]) {
+                                sh "docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+
+                                sh "cd ${name} && docker build -t ${name}:latest --tag stuartmolnar/${dockerRepoName}:${name} ."
+                                sh "docker push stuartmolnar/${dockerRepoName}:${name}"
+                        
+                            }   
+                        }
+                    }
+                    
+                    
+                }
+            }
+            
+            stage('Scan'){
+                steps {
+                    script {
+                        withCredentials([string(credentialsId: 'DockerHub', variable: 'TOKEN')]) {
+                            sh "docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+                            String[] imageSize = imageNames.toArray()
+
+                            int index = 0
+                            for (String name : imageSize){
+                                def docker_history = sh (
+                                    script: "docker history stuartmolnar/${dockerRepoName}:${name}",
+                                    returnStdout: true
+                                ).trim()
+                                docker_history = docker_history.split('\n')[1].split(' ')
+                                docker_history = docker_history[docker_history.length - 1]
+
+                                imageSize[index] = docker_history
+                                println(imageNames[index] + "'s latest image has a file size of " + imageSize[index]) 
+                                index++
+                            }
+                        
+                        }
+                    }
+                }
+            }
+            
+
+            stage('Deploy'){
+
+                steps{
+                    script{
+
+                        for (String name : imageNames) print(name)
+                        sshagent(credentials : ['SSH_KEY']) {
+                            imageNames.each{ name -> 
+                                //sh "ssh -v azureuser@lab6.eastus.cloudapp.azure.com && docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+                                //sh "ssh -v azureuser@lab6.eastus.cloudapp.azure.com && docker pull stuartmolnar/${dockerRepoName}:${name}"
+
+                                sh"""#!/bin/bash
+                                ssh -i ./azure_key.pem -o StrictHostKeyChecking=no azureuser@lab6.eastus.cloudapp.azure.com << 'EOF'
+                                ls -a
+                                echo '--1--'
+                                echo "name ${name}"
+                                echo "name $name"
+                                echo name
+                                docker pull "stuartmolnar/${dockerRepoName}:${name}"
+                                echo '--2--'
+                                docker image ls
+                                cd Lab-7/deployment
+                                echo '--3--'
+                                docker-compose up -d
+                                exit
+                                EOF
+                                """
+                                
+                            }
+                            //sh "ssh -v azureuser@lab6.eastus.cloudapp.azure.com && cd deployment && docker-compose up -d"
+                        }
+
+                                 
+
+                        /*
+                        //figure out SSH connection
+                        def remote = [:]
+                        remote.host = 'jenkins-4850.eastus.cloudapp.azure.com'
+                        remote.user = 'azureuser'
+                        remote.name = 'microservices'
+                        remote.allowAnyHosts = true       
+                        
+                        withCredentials([string(credentialsId: 'SSH_KEY', variable: 'ssh_key')]) {
+                            remote.identity = ssh_key
+                            sshCommand remote: remote, command: "ls -a"
+                        }
+                        */
+
+
+                    }
+                    
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,73 @@
+def call(dockerRepoName, imageName) {
+    pipeline {
+        agent any
+        stages {
+            stage('Build') {
+                steps {
+                    sh 'pip install -r requirements.txt'
+                }
+            }
+            stage('Pylint') {
+                steps {
+                    sh 'pylint-fail-under --fail_under 5.0 *.py'
+                }
+            }
+            stage('Unit Test') {
+                steps {
+                    script {
+                        def files = findFiles(glob: '**/test_*.py') 
+                        for (int i = 0; i < files.size(); i++) {
+                            sh """coverage run --omit */site-packages/*,*/dist-packages/* ${files[i].name}"""
+                        }
+                    }
+                }
+                post {
+                    always {
+                         script {
+                            def test_reports_exist = fileExists 'test-reports/*.xml'
+                            if (test_reports_exist) {                        
+                                sh 'rm test-reports/*.xml'
+                            }
+                            def api_test_reports_exist = fileExists 'api-test-reports/*.xml'
+                            if (api_test_reports_exist) {                        
+                                sh 'rm api-test-reports/*.xml'
+                            }
+
+                            test_reports_exist = fileExists 'test-reports'
+                            if (test_reports_exist) {                        
+                                junit 'test-reports/*.xml'
+                            }
+
+                            api_test_reports_exist = fileExists 'api-test-reports'
+                            if (api_test_reports_exist) {                        
+                                junit 'api-test-reports/*.xml'
+                            }
+                         }
+                    }
+                }
+            }
+            stage('Package') {
+                when {
+                    expression { env.GIT_BRANCH == 'origin/main' }
+                }
+                steps {
+                    withCredentials([string(credentialsId: 'DockerHub', variable: 'TOKEN')]) {
+                        sh "docker login -u 'stuartmolnar' -p '$TOKEN' docker.io"
+                        sh "docker build -t ${dockerRepoName}:latest --tag stuartmolnar/${dockerRepoName}:${imageName} ."
+                        sh "docker push stuartmolnar/${dockerRepoName}:${imageName}"
+                    }
+                }
+            }
+            stage('Archive Artifact') {
+                steps {
+                    sh """zip app.zip *.py"""
+                    archiveArtifacts artifacts: '**/app.zip'
+                }
+            }
+            
+        }
+        
+    }
+
+}
+
