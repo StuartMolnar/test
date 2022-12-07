@@ -1,9 +1,3 @@
-<h4> Issue </h4>
-
-```http://lab6.eastus.cloudapp.azure.com:8120``` is inaccesible by its DNS/IPv4 address
-
-```http://localhost:8090``` is inaccessible from health-check service
-
 <h4>Creating a pipeline from scratch using Jenkins and GitLab</h4>
 
 Go to Dashboard and click the ```+ New Item``` selection
